@@ -1,0 +1,11 @@
+flask==3.0.0
+flask-cors==4.0.0
+flask-login==0.6.3
+llama-cpp-python==0.3.16
+huggingface-hub==0.20.1
+python-dotenv==1.0.0
+sqlalchemy>=2.0.36
+pymysql==1.1.0
+cryptography==41.0.7
+bcrypt==4.1.2
+pyjwt==2.8.0
