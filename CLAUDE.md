@@ -71,7 +71,7 @@ Frontend env: set `VITE_API_BASE_URL` if the backend is not on localhost.
 
 ### Key modules
 
-**`model_loader.py`** — `ModelLoader` class. Downloads GGUF from HuggingFace Hub into `./models/` on first run (~4.7 GB). Loads with `n_gpu_layers=0` (CPU only). Change `MODEL_REPO`/`MODEL_FILE` in `.env` to swap models; restart required.
+**`model_loader.py`** — `ModelLoader` class. Downloads GGUF from HuggingFace Hub into `./models/` on first run (~4.7 GB). Loads with `n_gpu_layers=0` (CPU only), `n_ctx=2048`, `n_threads=4` — these are hardcoded, not in `.env`. Stop sequences `["</s>", "User:", "Human:"]` are hardcoded in `generate()`. Change `MODEL_REPO`/`MODEL_FILE` in `.env` to swap models; restart required.
 
 **`summarization.py`** — Three functions called from `app.py`:
 - `should_summarize(conversation_id)` — returns True at ≥15 messages
@@ -81,7 +81,45 @@ Frontend env: set `VITE_API_BASE_URL` if the backend is not on localhost.
 
 **`models.py`** — SQLAlchemy ORM. `get_db_session()` creates a new engine + session on every call (no connection pool). Each route/function must call `db.close()` in a `finally` block.
 
-**`auth.py`** — `@token_required` injects `current_user` as a **kwarg** (not positional arg). Decorated functions must accept `current_user` by keyword: `def my_route(current_user)`.
+**`auth.py`** — `@token_required` injects `current_user` as a **kwarg** (not positional arg). Flask route variables remain positional; `current_user` comes after:
+```python
+def get_conversation(conversation_id, current_user):
+```
+
+### Route patterns
+
+**Per-user isolation** — Every query for a user-owned resource must include `user_id=current_user.id` to prevent cross-user access:
+```python
+conversation = db.query(Conversation).filter_by(id=conversation_id, user_id=current_user.id).first()
+```
+
+**DB session lifecycle** — All routes follow this pattern; `db.rollback()` is required on error:
+```python
+db = get_db_session()
+try:
+    # ...
+    db.commit()
+except Exception:
+    db.rollback()
+    return jsonify({'error': ...}), 500
+finally:
+    db.close()
+```
+
+### API endpoints
+
+```
+POST /api/auth/register       — create user (username ≥3 chars, password ≥6 chars)
+POST /api/auth/login          — returns JWT
+GET  /api/conversations       — list user's conversations
+POST /api/conversations       — create new conversation
+GET  /api/conversations/<id>  — get with messages array
+DELETE /api/conversations/<id>
+PATCH /api/conversations/<id>/title
+POST /api/chat                — send message; triggers summarization + title generation
+GET  /health
+GET  /model-info
+```
 
 ### Known issues to be aware of
 - **`Sidebar.tsx` hardcodes `http://localhost:5000`** instead of using the `apiUrl()` helper from `base.ts`. Any deployment to a non-localhost backend will break the sidebar.
